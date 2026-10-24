@@ -3,6 +3,7 @@ import json
 import os
 import re
 import httpx
+import concurrent.futures
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from .storage import canonical
 
@@ -125,50 +126,98 @@ def ask_model(packages, policy_revision):
     parsed = json.loads(content)
     return parsed["proposals"]
 
-
 def _decide_batch_unlocked(store, packages, policy_revision):
     if not packages:
         raise ValueError("Batch must contain packages")
     ids = [p.get("packageId") for p in packages if isinstance(p, dict)]
     if len(ids) != len(packages) or any(not isinstance(i, str) or not i for i in ids) or len(set(ids)) != len(ids):
         raise ValueError("Invalid or duplicate packageId")
+    
     cached = {}
     missing = []
     for package in packages:
         key = hashlib.sha256(canonical({"policyRevision": policy_revision, "package": package}).encode()).hexdigest()
         found = store.get_decision(key)
-
-        
         if found is None:
             missing.append(package)
         else:
             cached[package["packageId"]] = normalize_and_validate(package, found)
+            
     if missing:
-        generated = ask_model(missing, policy_revision)
-        if not isinstance(generated, list) or len(generated) != len(missing):
-            raise ValueError("AI returned wrong number of proposals")
-        mapped = {}
-        for raw in generated:
+        # OPTIMIZATION: Process missing packages concurrently using a ThreadPoolExecutor 
+        # so multiple packages don't wait in a slow sequential bottleneck.
+        def process_single_missing(pkg):
+            # Evaluate each missing package (or smaller chunks) concurrently
+            res = ask_model([pkg], policy_revision)
+            if not isinstance(res, list) or len(res) != 1:
+                raise ValueError("AI returned wrong number of proposals for package")
+            raw = res[0]
             if not isinstance(raw, dict):
                 raise ValueError("Malformed model proposal")
             pid = raw.get("packageId")
-            if not isinstance(pid, str) or pid in mapped:
-                raise ValueError("Duplicate or malformed model package")
-            mapped[pid] = raw
-        if set(mapped) != {p["packageId"] for p in missing}:
-            raise ValueError("AI proposal package IDs do not match")
-        # Validate every proposal before caching any of them.
-        validated = {}
-        for package in missing:
-            validated[package["packageId"]] = normalize_and_validate(
-                package, mapped[package["packageId"]]
-            )
-        for package in missing:
-            key = hashlib.sha256(canonical({"policyRevision": policy_revision, "package": package}).encode()).hexdigest()
-            decision = validated[package["packageId"]]
-            store.put_decision(key, decision)
-            cached[package["packageId"]] = decision
+            if pid != pkg["packageId"]:
+                raise ValueError("AI proposal package ID mismatch")
+            decision = normalize_and_validate(pkg, raw)
+            return pkg, key_for_pkg(pkg, policy_revision), decision
+
+        # Helper for cache key
+        def key_for_pkg(p, rev):
+            return hashlib.sha256(canonical({"policyRevision": rev, "package": p}).encode()).hexdigest()
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(missing)) as executor:
+            futures = [executor.submit(process_single_missing, pkg) for pkg in missing]
+            for future in concurrent.futures.as_completed(futures):
+                pkg, key, decision = future.result()
+                store.put_decision(key, decision)
+                cached[pkg["packageId"]] = decision
+
     return [cached[p["packageId"]] for p in packages]
+
+
+
+# def _decide_batch_unlocked(store, packages, policy_revision):
+#     if not packages:
+#         raise ValueError("Batch must contain packages")
+#     ids = [p.get("packageId") for p in packages if isinstance(p, dict)]
+#     if len(ids) != len(packages) or any(not isinstance(i, str) or not i for i in ids) or len(set(ids)) != len(ids):
+#         raise ValueError("Invalid or duplicate packageId")
+#     cached = {}
+#     missing = []
+#     for package in packages:
+#         key = hashlib.sha256(canonical({"policyRevision": policy_revision, "package": package}).encode()).hexdigest()
+#         found = store.get_decision(key)
+
+        
+#         if found is None:
+#             missing.append(package)
+#         else:
+#             cached[package["packageId"]] = normalize_and_validate(package, found)
+#     if missing:
+#         generated = ask_model(missing, policy_revision)
+#         if not isinstance(generated, list) or len(generated) != len(missing):
+#             raise ValueError("AI returned wrong number of proposals")
+#         mapped = {}
+#         for raw in generated:
+#             if not isinstance(raw, dict):
+#                 raise ValueError("Malformed model proposal")
+#             pid = raw.get("packageId")
+#             if not isinstance(pid, str) or pid in mapped:
+#                 raise ValueError("Duplicate or malformed model package")
+#             mapped[pid] = raw
+#         if set(mapped) != {p["packageId"] for p in missing}:
+#             raise ValueError("AI proposal package IDs do not match")
+#         # Validate every proposal before caching any of them.
+#         validated = {}
+#         for package in missing:
+#             validated[package["packageId"]] = normalize_and_validate(
+#                 package, mapped[package["packageId"]]
+#             )
+#         for package in missing:
+#             key = hashlib.sha256(canonical({"policyRevision": policy_revision, "package": package}).encode()).hexdigest()
+#             decision = validated[package["packageId"]]
+#             store.put_decision(key, decision)
+#             cached[package["packageId"]] = decision
+#     return [cached[p["packageId"]] for p in packages]
 
 # Reserve package content before checking cache or invoking AI Pipe. This
 # prevents concurrent distinct messages from duplicating model calls.
