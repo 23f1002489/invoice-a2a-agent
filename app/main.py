@@ -14,6 +14,15 @@ from pydantic import BaseModel, ConfigDict, Field
 from .storage import SQLiteStore, message_hash
 from .postgres_storage import Store as PostgresStore
 from .decision_engine import decide_batch
+import logging
+import traceback
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("a2a_agent")
+
 
 
 def load_env():
@@ -164,8 +173,10 @@ def send(body: SendRequest, principal: str = Depends(protocol)):
             if outcome == 'conflict': return failure('IDEMPOTENCY_CONFLICT',409,'Message ID was already used with different content')
             return {'task':saved}
         except ValueError as exc:
+            logger.warning(f"Invalid proposal generated: {exc}")
             return failure('INVALID_PROPOSAL',422,str(exc))
         except Exception:
+            logger.error(f"Decision engine failure for principal {principal[:8]}...: {exc}\n{traceback.format_exc()}")
             return failure('DECISION_UNAVAILABLE',503,'Invoice decision service unavailable')
         finally:
             store.release('message',reservation_key,owner)
