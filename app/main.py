@@ -175,7 +175,7 @@ def send(body: SendRequest, principal: str = Depends(protocol)):
         except ValueError as exc:
             logger.warning(f"Invalid proposal generated: {exc}")
             return failure('INVALID_PROPOSAL',422,str(exc))
-        except Exception:
+        except Exception as exc:
             logger.error(f"Decision engine failure for principal {principal[:8]}...: {exc}\n{traceback.format_exc()}")
             return failure('DECISION_UNAVAILABLE',503,'Invoice decision service unavailable')
         finally:
