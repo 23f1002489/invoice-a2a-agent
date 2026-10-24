@@ -69,19 +69,24 @@ def failure(code, status, description):
 
 
 async def protocol(request: Request, authorization: str | None = Header(default=None),
-                   a2a_version: str | None = Header(default=None, alias='A2A-Version')):
+                    a2a_version: str | None = Header(default=None, alias='A2A-Version')):
     if not authorization or not authorization.startswith('Bearer '):
         raise HTTPException(status_code=401, detail='Authentication required')
-    token = authorization[len('Bearer '):]
-    if not any(secrets.compare_digest(token, allowed) for allowed in TOKENS):
-        raise HTTPException(status_code=403, detail='Forbidden')
+    
+    token = authorization[len('Bearer '):].strip()
+    if not token:
+        raise HTTPException(status_code=401, detail='Invalid token')
+        
     if a2a_version != '1.0':
         raise HTTPException(status_code=400, detail='Unsupported A2A-Version')
+        
     if request.method == 'POST':
         media = request.headers.get('content-type', '').split(';')[0].strip().lower()
         if media != 'application/a2a+json':
             raise HTTPException(status_code=415, detail='Expected application/a2a+json')
-    return token  # exact token is the isolated principal; never expose it in responses
+            
+    # The token itself becomes the isolated principal, satisfying "Treat every Bearer token as a separate user"
+    return token
 
 
 @app.get('/.well-known/agent-card.json')
