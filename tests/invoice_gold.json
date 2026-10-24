@@ -1,0 +1,89 @@
+[
+  {
+    "package": {
+      "packageId": "pkg-gold-001",
+      "vendorName": "Acme Supplies",
+      "invoiceNumber": "INV-2026-001",
+      "amountMinor": 45000,
+      "currency": "INR",
+      "documents": [
+        {
+          "docId": "doc-1",
+          "content": "Vendor Acme Supplies submitted invoice INV-2026-001 for amount 45000 INR. [REF_ACME_01] All compliance checks passed successfully and vendor master records are verified. [REF_ACME_02] Payment is within autonomous authority limits for regular operational expenses. [REF_ACME_03]"
+        }
+      ]
+    },
+    "expected": {
+      "action": "settle_invoice",
+      "facts": {
+        "vendorName": "Acme Supplies",
+        "invoiceNumber": "INV-2026-001",
+        "amountMinor": 45000,
+        "currency": "INR"
+      },
+      "evidenceRefs": [
+        "[REF_ACME_01]",
+        "[REF_ACME_02]",
+        "[REF_ACME_03]"
+      ]
+    }
+  },
+  {
+    "package": {
+      "packageId": "pkg-gold-002",
+      "vendorName": "Global Logistics",
+      "invoiceNumber": "INV-2026-002",
+      "amountMinor": 250000,
+      "currency": "INR",
+      "documents": [
+        {
+          "docId": "doc-2",
+          "content": "Invoice INV-2026-002 from Global Logistics totals 250000 INR. [REF_GLOB_01] Commercial terms are valid and services were rendered, but the amount exceeds the local autonomous threshold. [REF_GLOB_02] Executive managerial sign-off is mandatory before payout. [REF_GLOB_03]"
+        }
+      ]
+    },
+    "expected": {
+      "action": "request_approval",
+      "facts": {
+        "vendorName": "Global Logistics",
+        "invoiceNumber": "INV-2026-002",
+        "amountMinor": 250000,
+        "currency": "INR"
+      },
+      "evidenceRefs": [
+        "[REF_GLOB_01]",
+        "[REF_GLOB_02]",
+        "[REF_GLOB_03]"
+      ]
+    }
+  },
+  {
+    "package": {
+      "packageId": "pkg-gold-003",
+      "vendorName": "Tech Solutions",
+      "invoiceNumber": "INV-2026-003",
+      "amountMinor": 12000,
+      "currency": "INR",
+      "documents": [
+        {
+          "docId": "doc-3",
+          "content": "Invoice INV-2026-003 from Tech Solutions for 12000 INR was already settled under previous payment reference TXN-9988. [REF_TECH_01] This submission represents an exact duplicate copy of an already paid invoice. [REF_TECH_02] Immediate rejection is required to prevent double payment. [REF_TECH_03]"
+        }
+      ]
+    },
+    "expected": {
+      "action": "reject_duplicate",
+      "facts": {
+        "vendorName": "Tech Solutions",
+        "invoiceNumber": "INV-2026-003",
+        "amountMinor": 12000,
+        "currency": "INR"
+      },
+      "evidenceRefs": [
+        "[REF_TECH_01]",
+        "[REF_TECH_02]",
+        "[REF_TECH_03]"
+      ]
+    }
+  }
+]
